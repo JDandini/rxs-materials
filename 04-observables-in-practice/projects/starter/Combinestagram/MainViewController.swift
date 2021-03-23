@@ -41,26 +41,63 @@ class MainViewController: UIViewController {
   @IBOutlet weak var buttonSave: UIButton!
   @IBOutlet weak var itemAdd: UIBarButtonItem!
 
+  private let bag = DisposeBag()
+  private let images = BehaviorRelay<[UIImage]>(value: [])
+
   override func viewDidLoad() {
     super.viewDidLoad()
+    images
+      .subscribe(onNext: { [weak self] photos in
+        self?.updateUI(photos: photos)
+      })
+      .disposed(by: bag)
 
   }
   
   @IBAction func actionClear() {
-
+    images.accept([])
   }
 
   @IBAction func actionSave() {
+    guard let image = imagePreview.image else { return }
+    PhotoWriter.save(image)
+      .subscribe(onSuccess: { [weak self] id in
+        self?.showMessage("Saved with id: \(id)")
+        self?.actionClear()
+      }, onError: { [weak self] error in
+        self?.showMessage("Error", description: error.localizedDescription)
+      })
+      .disposed(by: bag)
 
   }
 
   @IBAction func actionAdd() {
+    let photosViewController = storyboard!.instantiateViewController(
+      withIdentifier: "PhotosViewController") as! PhotosViewController
 
+    photosViewController.selectedPhotos
+      .subscribe(onNext: { [weak self] newPhoto in
+        guard let images = self?.images else { return }
+        images.accept(images.value + [newPhoto])
+      }, onDisposed: {
+        print("Completed photo selection")
+      })
+      .disposed(by: bag)
+    navigationController?.pushViewController(photosViewController, animated: true)
+  }
+
+  private func updateUI(photos: [UIImage]) {
+    let numberOfPhotos = photos.count
+    buttonSave.isEnabled = numberOfPhotos > 0 && numberOfPhotos % 2 == 0
+    buttonClear.isEnabled = numberOfPhotos > 0
+    itemAdd.isEnabled = numberOfPhotos < 6
+    title = photos.count > 0 ? "\(photos.count) photos" : "Collage"
+    imagePreview.image = photos.collage(size: imagePreview.frame.size)
   }
 
   func showMessage(_ title: String, description: String? = nil) {
-    let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
-    present(alert, animated: true, completion: nil)
+    alert(title: title, text: description)
+          .subscribe()
+          .disposed(by: bag)
   }
 }
