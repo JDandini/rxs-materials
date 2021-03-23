@@ -43,11 +43,15 @@ class MainViewController: UIViewController {
 
   private let bag = DisposeBag()
   private let images = BehaviorRelay<[UIImage]>(value: [])
+  private var imageCache: [Int] = []
 
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    images
+    let imageObserable = images.share()
+
+    imageObserable
+      .throttle(.milliseconds(500), scheduler: MainScheduler.instance)
       .subscribe(onNext: { [weak imagePreview] photos in
         guard let preview = imagePreview else { return }
 
@@ -55,7 +59,7 @@ class MainViewController: UIViewController {
       })
       .disposed(by: bag)
 
-    images
+    imageObserable
       .subscribe(onNext: { [weak self] photos in
         self?.updateUI(photos: photos)
       })
@@ -64,6 +68,8 @@ class MainViewController: UIViewController {
   
   @IBAction func actionClear() {
     images.accept([])
+    imageCache = []
+    navigationItem.setLeftBarButton(.none, animated: false)
   }
 
   @IBAction func actionSave() {
@@ -90,7 +96,21 @@ class MainViewController: UIViewController {
 
     navigationController!.pushViewController(photosViewController, animated: true)
 
-    photosViewController.selectedPhotos
+    let newPhotos = photosViewController.selectedPhotos
+      .share()
+
+    newPhotos
+      .takeWhile {[weak self] image in
+        let count = self?.images.value.count ?? 0
+        return count < 6
+      }
+      .filter { $0.size.width > $0.size.height }
+      .filter { [weak self] newImage in
+        let lenght = newImage.pngData()?.count ?? 0
+        guard self?.imageCache.contains(lenght) == false else { return false }
+        self?.imageCache.append(lenght)
+        return true
+      }
       .subscribe(
         onNext: { [weak self] newImage in
           guard let images = self?.images else { return }
@@ -101,7 +121,25 @@ class MainViewController: UIViewController {
         }
       )
       .disposed(by: bag)
+
+    newPhotos
+      .ignoreElements()
+      .subscribe(onCompleted: { [weak self] in
+        self?.updateNavigationIcon()
+      })
+      .disposed(by: bag)
   }
+
+  private func updateNavigationIcon() {
+    guard images.value.count > 0 else { return }
+    let icon = imagePreview.image?
+      .scaled(CGSize(width: 22, height: 22))
+      .withRenderingMode(.alwaysOriginal)
+
+    navigationItem.leftBarButtonItem = UIBarButtonItem(image: icon,
+      style: .done, target: nil, action: nil)
+  }
+
 
   func showMessage(_ title: String, description: String? = nil) {
     alert(title: title, text: description)

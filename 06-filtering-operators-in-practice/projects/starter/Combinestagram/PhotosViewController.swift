@@ -43,6 +43,7 @@ class PhotosViewController: UICollectionViewController {
 
   // MARK: private properties
   private let selectedPhotosSubject = PublishSubject<UIImage>()
+  private let bag = DisposeBag()
 
   private lazy var photos = PhotosViewController.loadPhotos()
   private lazy var imageManager = PHCachingImageManager()
@@ -62,12 +63,35 @@ class PhotosViewController: UICollectionViewController {
   // MARK: View Controller
   override func viewDidLoad() {
     super.viewDidLoad()
+    let authorization = PHPhotoLibrary.authorized
+      .share()
 
+    authorization
+      .distinctUntilChanged()
+      .takeLast(1)
+      .filter { !$0 }
+      .subscribe(onNext: { [weak self] _ in
+        guard let errorMessage = self?.errorMessage else { return }
+        DispatchQueue.main.async(execute: errorMessage)
+      })
+      .disposed(by: bag)
   }
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     selectedPhotosSubject.onCompleted()
+  }
+
+  private func errorMessage() {
+    alert(title: "No access to Camera Roll",
+      text: "You can grant access to Combinestagram from the Settings app")
+      .asObservable()
+      .take(.seconds(3), scheduler: MainScheduler.instance)
+      .subscribe(onCompleted: { [weak self] in
+        self?.dismiss(animated: true, completion: nil)
+        _ = self?.navigationController?.popViewController(animated: true)
+      })
+      .disposed(by: bag)
   }
 
   // MARK: UICollectionView
@@ -103,7 +127,7 @@ class PhotosViewController: UICollectionViewController {
             let info = info else { return }
 
       if let isThumbnail = info[PHImageResultIsDegradedKey as NSString] as?
-        Bool, !isThumbnail {
+          Bool, !isThumbnail {
         self?.selectedPhotosSubject.onNext(image)
       }
     })
