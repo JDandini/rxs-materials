@@ -89,12 +89,12 @@ class MainViewController: UIViewController {
   }
 
   @IBAction func actionAdd() {
-    // images.accept(images.value + [UIImage(named: "IMG_1907.jpg")!])
 
-    let photosViewController = storyboard!.instantiateViewController(
-      withIdentifier: "PhotosViewController") as! PhotosViewController
+   guard  let photosViewController = storyboard?.instantiateViewController(withIdentifier: "PhotosViewController") as? PhotosViewController else {
+    return
+   }
 
-    navigationController!.pushViewController(photosViewController, animated: true)
+    navigationController?.pushViewController(photosViewController, animated: true)
 
     let newPhotos = photosViewController.selectedPhotos
       .share()
