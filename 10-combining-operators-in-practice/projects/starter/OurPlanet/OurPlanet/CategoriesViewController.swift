@@ -37,12 +37,26 @@ import RxCocoa
 class CategoriesViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
   let categories = BehaviorRelay<[EOCategory]>(value: [])
   let disposeBag = DisposeBag()
-
+  let loadingView: UIActivityIndicatorView = {
+    let activity = UIActivityIndicatorView()
+    activity.tintColor = UIColor.systemPurple
+    return activity
+  }()
+  let downloadView = DownloadView()
+  
 
   @IBOutlet var tableView: UITableView!
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    let loadingItem = UIBarButtonItem(customView: loadingView)
+    navigationItem.setRightBarButton(loadingItem, animated: false)
+    loadingView.startAnimating()
+    loadingView.hidesWhenStopped = true
+
+    view.addSubview(downloadView)
+    view.layoutIfNeeded()
+
     categories
       .asObservable()
       .subscribe(onNext: { [weak self] _ in
@@ -55,24 +69,53 @@ class CategoriesViewController: UIViewController, UITableViewDataSource, UITable
   }
 
   func startDownload() {
+    // CHALLENGE 2
+    downloadView.progress.progress = 0.0
+    downloadView.label.text = "Download: 0%"
+
     let eoCategories = EONET.categories
-    let downloadedEvents = EONET.events(forLast: 360)
-    let updatedCategories = Observable
-      .combineLatest(eoCategories, downloadedEvents) { (categories, events) -> [EOCategory] in
-        return categories.map { category in
-          var cat = category
-          cat.events = events.filter {
-            $0.categories.contains(where: { $0.id == category.id })
-          }
-          return cat
-        }
+    let downloadedEvents = eoCategories
+      .flatMap { categories in
+        return Observable.from(categories.map { category in
+          EONET.events(forLast: 360, category: category)
+        })
       }
+      .merge(maxConcurrent: 2)
+
+    let updatedCategories = eoCategories.flatMap { categories in
+      downloadedEvents.scan((0,categories)) { tuple, events in
+        return (tuple.0 + 1, tuple.1.map { category in
+          let eventsForCategory = EONET.filteredEvents(events: events, forCategory: category)
+          if !eventsForCategory.isEmpty {
+            var cat = category
+            cat.events = cat.events + eventsForCategory
+            return cat
+          }
+          return category
+        })
+      }
+    }
+    // CHALLENGE 1
+    .do(onCompleted: { [weak self] in
+      DispatchQueue.main.async {
+        self?.loadingView.stopAnimating()
+        self?.downloadView.isHidden = true  // CHALLENGE 2
+      }
+    })
+    // CHALLENGE 2
+    .do(onNext: { [weak self] tuple in
+      DispatchQueue.main.async {
+        let progress = Float(tuple.0) / Float(tuple.1.count)
+        self?.downloadView.progress.progress = progress
+        let percent = Int(progress * 100.0)
+        self?.downloadView.label.text = "Download: \(percent)%"
+      }
+    })
 
     eoCategories
-      .concat(updatedCategories)
+      .concat(updatedCategories.map(\.1)) // CHALLENGE 2
       .bind(to: categories)
       .disposed(by: disposeBag)
-
   }
   
   // MARK: UITableViewDataSource

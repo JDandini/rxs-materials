@@ -96,18 +96,18 @@ class EONET {
     }
   }
 
-  private static func events(forLast days: Int, closed: Bool) -> Observable<[EOEvent]> {
+  private static func events(forLast days: Int, closed: Bool, endpoint: String) -> Observable<[EOEvent]> {
     let query: [String: Any] = [
       "days": days,
       "status": (closed ? "closed" : "open")
     ]
-    let request: Observable<[EOEvent]> = EONET.request(endpoint: eventsEndpoint, query: query, contentIdentifier: "events")
+    let request: Observable<[EOEvent]> = EONET.request(endpoint: endpoint, query: query, contentIdentifier: "events")
     return request.catchErrorJustReturn([])
   }
   
-  static func events(forLast days: Int = 360) -> Observable<[EOEvent]> {
-    let openEvents = events(forLast: days, closed: false)
-    let closedEvents = events(forLast: days, closed: true)
+  static func events(forLast days: Int = 360, category: EOCategory) -> Observable<[EOEvent]> {
+    let openEvents = events(forLast: days, closed: false, endpoint: category.endpoint)
+    let closedEvents = events(forLast: days, closed: true, endpoint: category.endpoint)
 
     return Observable.of(openEvents, closedEvents)
       .merge()
